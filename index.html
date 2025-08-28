@@ -285,15 +285,21 @@
 
             const loadingIndicator = document.getElementById('loadingIndicator');
             const resultsContainer = document.getElementById('resultsContainer');
+            const socialPostEl = document.getElementById('socialPost').querySelector('p');
+            const googlePostEl = document.getElementById('googlePost').querySelector('p');
+            const adHeadlineEl = document.getElementById('adHeadline').querySelector('p');
+
+            socialPostEl.textContent = '';
+            googlePostEl.textContent = '';
+            adHeadlineEl.textContent = '';
+
             loadingIndicator.classList.remove('hidden');
             resultsContainer.classList.add('hidden');
 
             const prompt = `Generate a creative content plan for a restaurant in Amsterdam based on the following topic: "${topic}". The output should be a single JSON object with three properties: "socialMediaPost", "googleBusinessUpdate", and "paidAdHeadline". Each property should contain a creative text draft. The tone should be friendly, inviting, and professional.`;
-
-            let chatHistory = [];
-            chatHistory.push({ role: "user", parts: [{ text: prompt }] });
+            
             const payload = {
-                contents: chatHistory,
+                contents: [{ role: "user", parts: [{ text: prompt }] }],
                 generationConfig: {
                     responseMimeType: "application/json",
                     responseSchema: {
@@ -307,33 +313,49 @@
                     }
                 }
             };
-            const apiKey = ""
+            const apiKey = "";
             const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
 
+            const makeApiCall = async (retries = 3) => {
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (!response.ok) {
+                        const errorData = await response.text();
+                        console.error('API call failed:', response.status, response.statusText, errorData);
+                        throw new Error(`API error: ${response.statusText}`);
+                    }
+                    const result = await response.json();
+                    const jsonText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
+                    if (!jsonText) {
+                        throw new Error('No content received from API.');
+                    }
+                    return JSON.parse(jsonText);
+                } catch (error) {
+                    if (retries > 0) {
+                        const delay = Math.pow(2, 3 - retries) * 1000 + Math.random() * 1000;
+                        console.log(`Retrying in ${delay}ms...`);
+                        await new Promise(res => setTimeout(res, delay));
+                        return makeApiCall(retries - 1);
+                    } else {
+                        throw error;
+                    }
+                }
+            };
+
             try {
-                let response = await fetch(apiUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                if (!response.ok) {
-                    throw new Error(`API error: ${response.statusText}`);
-                }
-                const result = await response.json();
-                const jsonText = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (!jsonText) {
-                     throw new Error('No content received from API.');
-                }
-                const generatedContent = JSON.parse(jsonText);
-
-                document.getElementById('socialPost').querySelector('p').textContent = generatedContent.socialMediaPost;
-                document.getElementById('googlePost').querySelector('p').textContent = generatedContent.googleBusinessUpdate;
-                document.getElementById('adHeadline').querySelector('p').textContent = generatedContent.paidAdHeadline;
-
+                const generatedContent = await makeApiCall();
+                socialPostEl.textContent = generatedContent.socialMediaPost;
+                googlePostEl.textContent = generatedContent.googleBusinessUpdate;
+                adHeadlineEl.textContent = generatedContent.paidAdHeadline;
                 resultsContainer.classList.remove('hidden');
             } catch (error) {
                 console.error('Error generating content:', error);
-                alert('Failed to generate content. Please try again later.');
+                socialPostEl.textContent = 'Failed to generate content. Please try again later.';
             } finally {
                 loadingIndicator.classList.add('hidden');
             }
